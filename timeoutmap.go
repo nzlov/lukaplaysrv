@@ -44,6 +44,7 @@ func (tom *TimeOutMap) Set(k string, v interface{}) {
 
 func (tom *TimeOutMap) Get(k string) (interface{}, bool) {
 	if v, ok := tom.data[k]; ok {
+		v.timeout = time.Now()
 		return v.data, true
 	}
 	return nil, false
