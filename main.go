@@ -194,8 +194,9 @@ func getvideoswithsub(path string) (*VideoList, error) {
 		}
 		if strings.HasSuffix(strings.ToLower(fi.Name()), ".srt") {
 			vl.Subtitles = append(vl.Subtitles, urlstr(fi.Name()))
+			return nil
 		}
-		checkfileformat(path, vl)
+		checkfileformat(p, vl)
 		return nil
 	})
 	if err != nil {
