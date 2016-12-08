@@ -1,6 +1,19 @@
 # lukaplaysrv
-
-
+噜咖播放器airplay开源命令行实现
+# 使用说明
+需将对应平台下的`ffmpeg`,`ffprobe`放置到执行目录下。
+# config.cfg
+```
+{
+    "Name":"Nzlov VR FileServer", //服务器名称
+    "FilePath":[    //视频目录集，可指定多个
+        {
+            "Path":"/Volumes/sys/", //视频目录
+            "Sub":false //是否扫描子目录
+        }
+    ]
+}
+```
 # Protocol
 
 default port : 20066
