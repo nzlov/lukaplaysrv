@@ -2,19 +2,28 @@ package main
 
 import (
 	"encoding/json"
+	"flag"
 	"fmt"
 	"io/ioutil"
 	"os"
 	"strings"
 )
 
-const VERSION = 1
+const VERSION = 2
 
-var VIDEOFORMATS = []string{".mp4", ".rmvb"}
+var (
+	VIDEOFORMATS = []string{".mp4", ".rmvb", ".avi", ".mkv", ".mov"}
 
-var PthSep = string(os.PathSeparator)
+	configpath = flag.String("cfg", "config.cfg", "config file")
 
-var serverinfo map[string]interface{}
+	videos []*VideoList
+	PthSep = string(os.PathSeparator)
+
+	serverinfo map[string]interface{}
+
+	videoinfos *TimeOutMap
+	videoimgs  *TimeOutMap
+)
 
 type FileType int
 
@@ -29,6 +38,24 @@ const (
 type VideoList struct {
 	Files     []string `json:"files"`
 	Subtitles []string `json:"subtitles"`
+}
+
+type Format struct {
+	Duration string `json:"duration"`
+	Size     string `json:"size"`
+}
+type Streams struct {
+	Index     int    `json:"index"`
+	CodecName string `json:"codec_name"`
+	CodecType string `json:"codec_type"`
+
+	Width  int `json:"width"`
+	Height int `json:"height"`
+}
+
+type Metadata struct {
+	Streams []Streams `json:"streams"`
+	Format  Format    `json:"format"`
 }
 
 type Config struct {

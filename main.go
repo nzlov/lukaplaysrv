@@ -3,9 +3,10 @@ package main
 import (
 	"encoding/hex"
 	"encoding/json"
-	"flag"
 	"net/http"
+	"net/url"
 	"os"
+	"strconv"
 
 	"github.com/gorilla/mux"
 
@@ -17,12 +18,9 @@ import (
 
 	"crypto/md5"
 	"fmt"
-	"net/url"
+	"os/exec"
+	"time"
 )
-
-var configpath = flag.String("cfg", "config.cfg", "config file")
-
-var videos []*VideoList
 
 func main() {
 	config, err := LoadConfig(*configpath)
@@ -38,6 +36,9 @@ func main() {
 	serverinfo["listEndpoint"] = "http://" + config.Host + "/list"
 
 	fmt.Println(serverinfo)
+
+	videoinfos = NewTimeOutMap(time.Hour)
+	videoimgs = NewTimeOutMap(time.Hour)
 
 	videos = make([]*VideoList, 0)
 	for _, cf := range config.FilePath {
@@ -73,12 +74,21 @@ func main() {
 	fmt.Println(string(v), e)
 
 	r := mux.NewRouter()
+	r.HandleFunc("/s/{path}/{name}", httpplay)
 	r.HandleFunc("/config", httpconfig)
 	r.HandleFunc("/list", httplist)
+	r.HandleFunc("/metadata/s/{path}/{name}", httpmetadata)
+	r.HandleFunc("/thumbnail/s/{path}/{name}.jpg", httpthumbnail)
 	err = http.ListenAndServe(config.Host, r)
 	if err != nil {
 		panic(err)
 	}
+}
+
+func httpplay(w http.ResponseWriter, r *http.Request) {
+	vars := mux.Vars(r)
+	fp := pathformat(vars["path"], false) + PthSep + vars["name"]
+	http.ServeFile(w, r, fp)
 }
 
 func httpconfig(w http.ResponseWriter, r *http.Request) {
@@ -96,6 +106,82 @@ func httplist(w http.ResponseWriter, r *http.Request) {
 	}
 	w.Write(v)
 }
+func httpmetadata(w http.ResponseWriter, r *http.Request) {
+	vars := mux.Vars(r)
+
+	fp := pathformat(vars["path"], false) + PthSep + vars["name"]
+
+	v, err := getmetadata(fp)
+	if err != nil {
+		panic(err)
+	}
+	data, err := json.Marshal(v)
+	if err != nil {
+		panic(err)
+	}
+	w.Write(data)
+}
+
+func getmetadata(name string) (*Metadata, error) {
+	v, ok := videoinfos.Get(name)
+	if !ok {
+		cmd := exec.Command("./ffprobe", "-v", "quiet", "-print_format", "json", "-show_format", "-show_streams", name)
+		cmd.Stderr = os.Stdout
+		b, err := cmd.Output()
+		if err != nil {
+			fmt.Println("CMD ERROR:", name, string(b), cmd.Args, err)
+			return nil, err
+		}
+		metadata := &Metadata{}
+		err = json.Unmarshal(b, metadata)
+		if err != nil {
+			return nil, err
+		}
+		videoinfos.Set(name, metadata)
+		v = metadata
+	}
+	return v.(*Metadata), nil
+}
+
+func httpthumbnail(w http.ResponseWriter, r *http.Request) {
+	vars := mux.Vars(r)
+
+	fp := pathformat(vars["path"], false) + PthSep + vars["name"]
+	fmt.Println("httpthumbnail:", fp)
+	v, err := getmetadata(fp)
+	if err != nil {
+		panic(err)
+	}
+
+	img, ok := videoimgs.Get(fp)
+	if !ok {
+
+		tmpf, err := ioutil.TempFile(".", "tmp")
+		if err != nil {
+			panic(err)
+		}
+		defer func() {
+			tmpf.Close()
+			os.Remove(tmpf.Name())
+		}()
+		dt, err := strconv.ParseFloat(v.Format.Duration, 32)
+		cmd := exec.Command("./ffmpeg", "-ss", fmt.Sprint(int(dt)/2), "-y", "-i", fp, "-vframes", "1", "-s", "256x144", "-f", "mjpeg", tmpf.Name())
+		cmd.Stderr = os.Stdout
+		b, err := cmd.Output()
+		if err != nil {
+			fmt.Println("CMD ffmpeg ERROR:", fp, string(b), cmd.Args, err)
+			panic(err)
+		}
+		data, err := ioutil.ReadAll(tmpf)
+		if err != nil {
+			panic(err)
+		}
+		videoimgs.Set(fp, data)
+		img = data
+	}
+
+	w.Write(img.([]byte))
+}
 
 func getvideoswithsub(path string) (*VideoList, error) {
 	vl := &VideoList{
@@ -107,7 +193,7 @@ func getvideoswithsub(path string) (*VideoList, error) {
 			return nil
 		}
 		if strings.HasSuffix(strings.ToLower(fi.Name()), ".srt") {
-			vl.Subtitles = append(vl.Subtitles, url.QueryEscape(fi.Name()))
+			vl.Subtitles = append(vl.Subtitles, urlstr(fi.Name()))
 		}
 		checkfileformat(path, vl)
 		return nil
@@ -133,7 +219,7 @@ func getvideos(path string) (*VideoList, error) {
 			continue
 		}
 		if strings.HasSuffix(strings.ToLower(fi.Name()), ".srt") {
-			vl.Subtitles = append(vl.Subtitles, url.QueryEscape(fi.Name()))
+			vl.Subtitles = append(vl.Subtitles, urlstr(fi.Name()))
 		}
 		checkfileformat(path+PthSep+fi.Name(), vl)
 	}
@@ -163,16 +249,11 @@ func pathExists(path string) (FileType, error) {
 }
 
 func pathformat(path string, b bool) string {
-	str := ""
 	if b {
-		for _, s := range strings.Split(path, "/") {
-			str = str + ":" + url.QueryEscape(s)
-		}
+
+		return strings.Replace(urlstr(path), "/", ":", strings.Count(path, "/")-1)
 	}
-	for _, s := range strings.Split(path, ":") {
-		str = str + "/" + url.QueryEscape(s)
-	}
-	return str[1:]
+	return strings.Replace(path, ":", "/", -1)
 }
 
 func nameuuid(name string) string {
@@ -180,4 +261,12 @@ func nameuuid(name string) string {
 	md5Ctx.Write([]byte(name))
 	b := hex.EncodeToString(md5Ctx.Sum(nil))
 	return string(b[:8]) + "-" + string(b[8:12]) + "-" + string(b[12:16]) + "-" + string(b[16:20]) + "-" + string(b[20:])
+}
+
+func urlstr(str string) string {
+	resUri, pErr := url.Parse(str)
+	if pErr != nil {
+		panic(pErr)
+	}
+	return resUri.EscapedPath()
 }
