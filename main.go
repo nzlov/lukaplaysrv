@@ -32,8 +32,8 @@ func main() {
 	serverinfo["version"] = VERSION
 	serverinfo["serverName"] = config.Name
 	serverinfo["serverUuid"] = nameuuid(config.Name)
-	serverinfo["address"] = "http://" + config.Host
-	serverinfo["listEndpoint"] = "http://" + config.Host + "/list"
+	serverinfo["address"] = "http://" + getLocalAddr() + ":20066"
+	serverinfo["listEndpoint"] = serverinfo["address"].(string) + "/list"
 
 	fmt.Println(serverinfo)
 
@@ -79,7 +79,7 @@ func main() {
 	r.HandleFunc("/list", httplist)
 	r.HandleFunc("/metadata/s/{path}/{name}", httpmetadata)
 	r.HandleFunc("/thumbnail/s/{path}/{name}.jpg", httpthumbnail)
-	err = http.ListenAndServe(config.Host, r)
+	err = http.ListenAndServe(":20066", r)
 	if err != nil {
 		panic(err)
 	}

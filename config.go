@@ -5,6 +5,7 @@ import (
 	"flag"
 	"fmt"
 	"io/ioutil"
+	"net"
 	"os"
 	"strings"
 )
@@ -59,8 +60,6 @@ type Metadata struct {
 }
 
 type Config struct {
-	Host string
-
 	Name string
 
 	FilePath []PathConfig
@@ -82,12 +81,8 @@ func LoadConfig(filepath string) (*Config, error) {
 	if err != nil {
 		return nil, err
 	}
-	config.Host = strings.TrimSpace(config.Host)
 	config.Name = strings.TrimSpace(config.Name)
 
-	if config.Host == "" {
-		return nil, fmt.Errorf("config.cfg host can not empty!")
-	}
 	if config.Name == "" {
 		return nil, fmt.Errorf("config.cfg name can not empty!")
 	}
@@ -97,4 +92,23 @@ func LoadConfig(filepath string) (*Config, error) {
 	}
 
 	return config, nil
+}
+
+func getLocalAddr() string {
+	addrs, err := net.InterfaceAddrs()
+
+	if err != nil {
+		panic(err)
+	}
+
+	for _, address := range addrs {
+
+		// 检查ip地址判断是否回环地址
+		if ipnet, ok := address.(*net.IPNet); ok && !ipnet.IP.IsLoopback() {
+			if ipnet.IP.To4() != nil {
+				return ipnet.IP.String()
+			}
+		}
+	}
+	return "0.0.0.0"
 }
